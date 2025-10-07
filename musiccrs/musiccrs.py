@@ -70,7 +70,7 @@ class MusicCRS(Agent):
 
         elif utterance.text.startswith("/add_title"):
             track = utterance.text[10:].strip()  
-            response = self._select_track(track)
+            response = self._select_track(track).replace("\n", "<br>")
         elif hasattr(self, "_pending_selection") and self._pending_selection:
             try:
                 number = int(utterance.text.strip())
@@ -78,24 +78,24 @@ class MusicCRS(Agent):
                 response = "Please enter a valid number."
             else:
                 result = self._pending_selection
-                response = self._add_track_title(title="", number=number, result=result)
+                response = self._add_track_title(title="", number=number, result=result).replace("\n", "<br>")  
                 self._pending_selection = None  
         elif utterance.text.startswith("/add"):
             track = utterance.text[5:].strip()  
-            response = self._add_track(track)
+            response = self._add_track(track).replace("\n", "<br>")
         elif utterance.text.startswith("/remove"):
-            track = utterance.text[8:].strip()
+            track = utterance.text[8:].strip().replace("\n", "<br>")
             response = self._remove_track(track)
         elif utterance.text == "/view":
-            response = self._view_playlist()
+            response = self._view_playlist().replace("\n", "<br>")
         elif utterance.text == "/clear":
-            response = self._clear_playlist()
+            response = self._clear_playlist().replace("\n", "<br>")
         elif utterance.text.startswith("/switch"):
-            playlist_name = utterance.text[8:].strip()
+            playlist_name = utterance.text[8:].strip().replace("\n", "<br>")
             response = self._switch_playlist(playlist_name)
         elif utterance.text.startswith("/create"):
             playlist_name = utterance.text[7    :].strip()
-            response = self._create_playlist(playlist_name)
+            response = self._create_playlist(playlist_name).replace("\n", "<br>")
 
 
 
@@ -122,7 +122,6 @@ class MusicCRS(Agent):
             return
         else:
             response = "I'm sorry, I don't understand that command."
-
         self._dialogue_connector.register_agent_utterance(
             AnnotatedUtterance(
                 response,
@@ -197,7 +196,7 @@ class MusicCRS(Agent):
         title =  track.strip()
         message, result = search_track_title(title)
         self._pending_selection = result  
-        return f"{message}\n Please select a number:"
+        return f"{message}\n"
 
     def _add_track(self, track: str) -> str:
         if ":" not in track :
