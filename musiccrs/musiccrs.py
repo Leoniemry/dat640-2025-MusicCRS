@@ -9,7 +9,8 @@ from dialoguekit.core.utterance import Utterance
 from dialoguekit.participant.agent import Agent
 from dialoguekit.participant.participant import DialogueParticipant
 from dialoguekit.platforms import FlaskSocketPlatform
-from database import search_track
+from database import *
+from download_cover import get_cover
 
 OLLAMA_HOST = "https://ollama.ux.uis.no"
 OLLAMA_MODEL = "llama3.3:70b"
@@ -31,7 +32,7 @@ class MusicCRS(Agent):
         else:
             self._llm = None
 
-        self._playlists = {"default": []}  # Stores the current playlist
+        self._playlists = {"default":{"tracks" : [],"cover" : None}}  # Stores the current playlist
         self._current_playlist = "default"
 
     def welcome(self) -> None:
@@ -67,7 +68,18 @@ class MusicCRS(Agent):
 
 
 
-
+        elif utterance.text.startswith("/add_title"):
+            track = utterance.text[10:].strip()  
+            response = self._select_track(track)
+        elif hasattr(self, "_pending_selection") and self._pending_selection:
+            try:
+                number = int(utterance.text.strip())
+            except ValueError:
+                response = "Please enter a valid number."
+            else:
+                result = self._pending_selection
+                response = self._add_track_title(title="", number=number, result=result)
+                self._pending_selection = None  
         elif utterance.text.startswith("/add"):
             track = utterance.text[5:].strip()  
             response = self._add_track(track)
@@ -157,52 +169,87 @@ class MusicCRS(Agent):
             + "</ol>\n"
         )
     
-    def _add_track(self, track: str) -> str:
-        if ":" not in track:
-            return "Invalid syntax please use Artist:Song."
 
-        artist, title = [s.strip() for s in track.split(":", 1)]
-        result = search_track(artist, title)
-        if not result:
-            return f"'{artist}: {title}'not found in database."
+    def _add_track_title(self,title : str, number : str,result :list):
+        if not result or number < 1 or number > len(result):
+            return "Invalid selection."
 
-        playlist = self._playlists[self._current_playlist]
-
-        a_norm = result.get("artist", artist).lower()
-        t_norm = result.get("title", title).lower()
+        playlist_data = self._playlists[self._current_playlist]
+        playlist = playlist_data["tracks"]
+        selected_track = result[number-1]
+        a_norm = selected_track['artist'].lower()
+        t_norm = selected_track['title'].lower()
 
         for item in playlist:
             if isinstance(item, dict):
-                if a_norm == item.get("artist", "").lower() and t_norm == item.get("title", "").lower():
-                    return f"'{result.get('artist')} – {result.get('title')}'is already in playlist'{self._current_playlist}'."
-           
-        
-        playlist.append(result)
-        return f"Added '{result.get('artist', artist)} – {result.get('title', title)}' to playlist '{self._current_playlist}'."
+                if a_norm == item.get('artist', '').lower() and t_norm == item.get('title', '').lower():
+                    return f"'{selected_track['artist']} – {selected_track['title']}' is already in playlist '{self._current_playlist}'."
+        playlist.append(selected_track)
+       
+        if not playlist_data["cover"]:
+            cover_url = get_cover(selected_track["uri"])
+            if cover_url:
+                playlist_data["cover"] = cover_url
+        return f"Added '{selected_track['artist']} – {selected_track['title']}' to playlist '{self._current_playlist}'."
 
+
+    def _select_track(self,track: str):
+        title =  track.strip()
+        message, result = search_track_title(title)
+        self._pending_selection = result  
+        return f"{message}\n Please select a number:"
+
+    def _add_track(self, track: str) -> str:
+        if ":" not in track :
+            return f'Wrong format if you want to use only title use /addt'
+
+        else :
+            artist, title = [s.strip() for s in track.split(":", 1)]
+            result = search_track(artist, title)    
+            if not result:
+                return f"'{artist}: {title}'not found in database."
+            playlist_data = self._playlists[self._current_playlist]
+            playlist = playlist_data["tracks"]
+
+            a_norm = result.get("artist", artist).lower()
+            t_norm = result.get("title", title).lower()
+
+            for item in playlist:
+                if isinstance(item, dict):
+                    if a_norm == item.get("artist", "").lower() and t_norm == item.get("title", "").lower():
+                        return f"'{result.get('artist')} – {result.get('title')}'is already in playlist'{self._current_playlist}'." 
+            playlist.append(result)
+
+        if not playlist_data["cover"]:
+            cover_url = get_cover(result["uri"])
+            if cover_url:
+                playlist_data["cover"] = cover_url
+        return f"Added '{result.get('artist', artist)} – {result.get('title', title)}' to playlist '{self._current_playlist}'."
+        
     def _remove_track(self, track: str) -> str:
-        """Supprime un morceau par Artist: Title (tolérant casse et format stocké)."""
         if ":" not in track:
-            return "Invalid syntax please use Artist:Song."
+            return "Invalid syntax, please use Artist:Song."
 
         artist, title = [s.strip().lower() for s in track.split(":", 1)]
-        playlist = self._playlists[self._current_playlist]
+        playlist_data = self._playlists[self._current_playlist]
+        playlist_tracks = playlist_data["tracks"]
 
-        for item in playlist[:]:
+        for item in playlist_tracks[:]: 
             if isinstance(item, dict):
                 if artist in item.get("artist", "").lower() and title in item.get("title", "").lower():
-                    playlist.remove(item)
+                    playlist_tracks.remove(item)
                     return f"Deleted '{item.get('artist')} – {item.get('title')}' from playlist '{self._current_playlist}'."
-            else:  
+            else:
                 s = item.lower()
                 if artist in s and title in s:
-                    playlist.remove(item)
-                    return f"Deleted'{item}' from playlist '{self._current_playlist}'."
+                    playlist_tracks.remove(item)
+                    return f"Deleted '{item}' from playlist '{self._current_playlist}'."
 
-        return f"Song '{track}'not found in playlist '{self._current_playlist}'."
+        return f"Song '{track}' not found in playlist '{self._current_playlist}'."
 
     def _view_playlist(self) -> str:
-        playlist = self._playlists[self._current_playlist]
+        playlist_data = self._playlists[self._current_playlist]
+        playlist = playlist_data["tracks"]
         if not playlist:
             return f"🎧 Playlist '{self._current_playlist}' est vide."
 
@@ -212,11 +259,15 @@ class MusicCRS(Agent):
                 message += f"{i}. {item.get('artist')} – {item.get('title')}\n"
             else:
                 message += f"{i}. {item}\n"
+
+        if playlist_data["cover"]:
+            message += f"\n🖼️ Cover: {playlist_data['cover']}"
         return message.strip()
 
     def _clear_playlist(self) -> str:
-
-        self._playlists[self._current_playlist].clear()
+        playlist_data = self._playlists[self._current_playlist]
+        playlist_data["tracks"].clear()
+        playlist_data["cover"] = None 
         return f"Playlist '{self._current_playlist}'now empty."
 
     def _switch_playlist(self, name: str) -> str:
@@ -228,7 +279,7 @@ class MusicCRS(Agent):
     def _create_playlist(self, name: str) -> str:
         if name in self._playlists:
             return f"Playlist '{name}' already exists."
-        self._playlists[name] = []
+        self._playlists[name] = {"tracks":[],"cover":None}
         self._current_playlist = name
         return f"Created and switched to new playlist '{name}'."
 
