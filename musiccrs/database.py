@@ -30,7 +30,8 @@ def load_database():
                             "artist": track.get("artist_name", ""),
                             "title": track.get("track_name", ""),
                             "uri": track.get("track_uri", ""),
-                            "album_name": track.get("album_name", "")
+                            "album_name": track.get("album_name", ""),
+                            "duration":track.get("duration_ms","") 
                         })
             except Exception as e:
                 print(f"⚠️ Erreur chargement {filename}: {e}")
@@ -53,7 +54,9 @@ def load_small_database():
                 "artist": track["artist_name"],
                 "title": track["track_name"], 
                 "uri": track["track_uri"],
-                "album_name": track["album_name"] })
+                "album_name": track["album_name"],
+                 "duration":track.get("duration_ms","") 
+                   })
     return tracks
 
 TRACKS = load_small_database()
