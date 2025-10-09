@@ -37,3 +37,4 @@ def get_cover(track_uri):
         f.write(image_data)
 
     print(f"Cover téléchargée : {cover_path}")
+    return cover_path
