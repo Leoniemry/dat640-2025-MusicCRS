@@ -11,6 +11,7 @@ from dialoguekit.participant.participant import DialogueParticipant
 from dialoguekit.platforms import FlaskSocketPlatform
 from database import *
 from download_cover import get_cover
+from music_queries import *
 
 OLLAMA_HOST = "https://ollama.ux.uis.no"
 OLLAMA_MODEL = "llama3.3:70b"
@@ -72,14 +73,19 @@ class MusicCRS(Agent):
             track = utterance.text[10:].strip()  
             response = self._select_track(track).replace("\n", "<br>")
         elif hasattr(self, "_pending_selection") and self._pending_selection:
-            try:
-                number = int(utterance.text.strip())
-            except ValueError:
-                response = "Please enter a valid number."
+            user_input = utterance.text.strip().lower()
+            if user_input == "quit":
+                response = "Selection cancelled."
+                self._pending_selection = None
             else:
-                result = self._pending_selection
-                response = self._add_track_title(title="", number=number, result=result).replace("\n", "<br>")  
-                self._pending_selection = None  
+                try:
+                    number = int(user_input)
+                except ValueError:
+                    response = "Please enter a valid number or type 'quit' to cancel."
+                else:
+                    result = self._pending_selection
+                    response = self._add_track_title(title="", number=number, result=result).replace("\n", "<br>")
+                    self._pending_selection = None
         elif utterance.text.startswith("/add"):
             track = utterance.text[5:].strip()  
             response = self._add_track(track).replace("\n", "<br>")
@@ -97,7 +103,25 @@ class MusicCRS(Agent):
             playlist_name = utterance.text[7    :].strip()
             response = self._create_playlist(playlist_name).replace("\n", "<br>")
 
+        elif utterance.text.startswith("/ask_track"):
+            question = utterance.text[len("/ask_track"):].strip().lower()
+        # === Analyse simple du texte de la question ===
+            if "artist of" in question:
+                title = question.split("artist of")[-1].strip()
+                response = self._get_artist_by_title(title)
 
+            elif "album" in question:
+                title = question.split("album")[-1].strip()
+                response = self._get_album_by_title(artist,title)
+
+            elif "popular song by" in question:
+                artist = question.split("popular song by")[-1].strip()
+                response = get_most_popular_song_by_artist(artist)
+
+            elif "how many playlists" in question or "appear" in question:
+                title = question.split("playlists")[-1].strip()
+                response = get_track_popularity(title)
+        
 
         elif utterance.text.startswith("/ask_llm "):
             prompt = utterance.text[9:]
@@ -200,7 +224,7 @@ class MusicCRS(Agent):
 
     def _add_track(self, track: str) -> str:
         if ":" not in track :
-            return f'Wrong format if you want to use only title use /addt'
+            return f'Wrong format if you want to use only title use /add_title'
 
         else :
             artist, title = [s.strip() for s in track.split(":", 1)]
@@ -250,17 +274,16 @@ class MusicCRS(Agent):
         playlist_data = self._playlists[self._current_playlist]
         playlist = playlist_data["tracks"]
         if not playlist:
-            return f"🎧 Playlist '{self._current_playlist}' est vide."
+            return f"Playlist '{self._current_playlist}' is empty."
 
-        message = f"🎶 Playlist '{self._current_playlist}':\n"
+        message = f" Playlist '{self._current_playlist}':\n"
         for i, item in enumerate(playlist, 1):
             if isinstance(item, dict):
                 message += f"{i}. {item.get('artist')} – {item.get('title')}\n"
             else:
                 message += f"{i}. {item}\n"
 
-        if playlist_data["cover"]:
-            message += f"\n🖼️ Cover: {playlist_data['cover']}"
+        print(playlist_data)
         return message.strip()
 
     def _clear_playlist(self) -> str:
@@ -281,6 +304,10 @@ class MusicCRS(Agent):
         self._playlists[name] = {"tracks":[],"cover":None}
         self._current_playlist = name
         return f"Created and switched to new playlist '{name}'."
+    
+    def _get_album_by_title(self,track :str) -> str:
+        artist, title = [s.strip() for s in track.split(":", 1)]
+        return get_album_by_title(artist,title)
 
 
 
