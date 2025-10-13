@@ -422,19 +422,18 @@ class MusicCRS(Agent):
         )
         return message
 
-    def _preview(self,track : str):    
+    def _preview(self, track: str):    
         artist, title = [s.strip() for s in track.split(":", 1)]
         sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id="d6cd2b0da40544f38836bdbda50052c3",
-            client_secret="da1be530ec3147fe863d0cc360cf3bb2",
+            client_id="b408182a8de64714ad698d1841704963",
+            client_secret="82d8b8299a374b7686b613c3db446819",
             redirect_uri="http://127.0.0.1:8888/callback",
             scope="user-read-playback-state,user-modify-playback-state,streaming"
         ))
 
-
         query = f"{artist} {title}"
         results = sp.search(q=query, type="track", limit=1)
-        
+
         if not results["tracks"]["items"]:
             return f"Aucun morceau trouvé pour {artist} - {title}"
 
@@ -442,17 +441,21 @@ class MusicCRS(Agent):
         track_name = track["name"]
         artist_name = track["artists"][0]["name"]
         preview_url = track.get("preview_url")
-
+        spotify_url = track["external_urls"]["spotify"]
+        print(results)
         if not preview_url:
-            return f"⚠️ Pas de preview disponible pour {artist_name} - {track_name}."
-
+            return f"""
+            No preview avaible for {artist_name} - {track_name}.<br>
+            🔗 <a href="{spotify_url}" target="_blank">Listen on spotify</a>
+            """
 
         html_preview = f"""
         🎵 {artist_name} - {track_name}<br>
         <audio controls>
             <source src="{preview_url}" type="audio/mpeg">
             Votre navigateur ne supporte pas la lecture audio.
-        </audio>
+        </audio><br>
+        🔗 <a href="{spotify_url}" target="_blank">Listen on spotify</a>
         """
         return html_preview
 

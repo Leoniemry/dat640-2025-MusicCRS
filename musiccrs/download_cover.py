@@ -4,8 +4,8 @@ from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
 
 
-CLIENT_ID = "6c5ce7f3ba45416ca6d5078ee52a6859"
-CLIENT_SECRET = "4e3727af29a344cfb89732c9a1abfbdf"
+CLIENT_ID = "b408182a8de64714ad698d1841704963"
+CLIENT_SECRET = "82d8b8299a374b7686b613c3db446819"
 
 def get_cover(track_uri):
 
