@@ -19,6 +19,7 @@ type Track = {
 type PlaylistData = {
   name: string;
   tracks: Track[];
+  cover?: string;
 };
 
 interface PlaylistPanelProps {
@@ -60,6 +61,8 @@ export default function PlaylistPanel({ playlist, onAddSong, onRemoveSong }: Pla
             borderTopRightRadius: "15px",
           }}
         >
+
+          
           <div>
             <p className="mb-0 fw-bold">Playlist - {playlist.name}</p>
           </div>
@@ -67,6 +70,21 @@ export default function PlaylistPanel({ playlist, onAddSong, onRemoveSong }: Pla
 
         <MDBCardBody>
           <div className="playlist-content">
+
+            {playlist.cover && (
+              <div style={{ textAlign: "center", marginBottom: "12px" }}>
+                <img
+                  src={playlist.cover}
+                  alt="Playlist Cover"
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: "200px",
+                    borderRadius: "12px",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+                  }}
+                />
+              </div>
+            )}
 
             {!playlist || playlist.tracks.length === 0 ? (
               <p className="text-muted text-center">No songs in the playlist yet 🎧</p>
