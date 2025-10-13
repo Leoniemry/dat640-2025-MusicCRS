@@ -12,6 +12,10 @@ from dialoguekit.platforms import FlaskSocketPlatform
 from database import *
 from download_cover import get_cover
 from music_queries import *
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+from play_spotify import*
+
 
 OLLAMA_HOST = "https://ollama.ux.uis.no"
 OLLAMA_MODEL = "llama3.3:70b"
@@ -64,14 +68,16 @@ class MusicCRS(Agent):
         response = ""
         dialogue_acts = []
         if utterance.text.startswith("/info"):
-            response = self._info()
+            response = self._list_info().replace("\t", "&emsp;").replace("\n", "<br>")
 
-
-
+        elif utterance.text.startswith("/play"):
+            track = utterance.text[6:].strip()  
+            response = self._preview(track).replace("\n", "<br>")
 
         elif utterance.text.startswith("/add_title"):
             track = utterance.text[10:].strip()  
             response = self._select_track(track).replace("\n", "<br>")
+
         elif hasattr(self, "_pending_selection") and self._pending_selection:
             user_input = utterance.text.strip().lower()
             if user_input == "quit":
@@ -105,24 +111,52 @@ class MusicCRS(Agent):
 
         elif utterance.text.startswith("/ask_track"):
             question = utterance.text[len("/ask_track"):].strip().lower()
-        # === Analyse simple du texte de la question ===
+
             if "artist of" in question:
                 title = question.split("artist of")[-1].strip()
-                response = self._get_artist_by_title(title)
+                print(title)
+                response = self._get_artist_by_title(title).replace("\n", "<br>")
+                
 
             elif "album" in question:
-                title = question.split("album")[-1].strip()
-                response = self._get_album_by_title(artist,title)
+                query = utterance.text[len("/ask_track"):].strip()
+
+                for keyword in ["In which album appears", "contains", "please", "user", "thanks"]:
+                    query = query.replace(keyword, "").strip()
+
+                parts = query.split()
+                if len(parts) >= 2:
+                    artist, title = [s.strip() for s in query.split(":", 1)]
+                    print("Artist:", artist)
+                    print("Title:", title)
+                    response = get_album(artist, title).replace("\n", "<br>")
+                else:
+                    response = "Please specify both artist and title."
+
+
+
+
 
             elif "popular song by" in question:
                 artist = question.split("popular song by")[-1].strip()
-                response = get_most_popular_song_by_artist(artist)
+                response = self._get_most_popular_song_by_artist(artist).replace("\n", "<br>")
 
             elif "how many playlists" in question or "appear" in question:
-                title = question.split("playlists")[-1].strip()
-                response = get_track_popularity(title)
-        
 
+                query = question
+                query = query.replace("how many playlists", "").replace("appears", "").replace("appear","").replace("how many playlist", "").strip()
+               
+                if ":" in query:
+                    artist, title = [s.strip() for s in query.split(":", 1)]
+                    print(artist)
+                    print(title)
+                    response = self._get_track_popularity(artist, title).replace("\n", "<br>")
+                else:
+                    response = "Please specify both artist and title using 'Artist:Title'."
+                    
+        elif utterance.text.startswith("/stat"):
+            prompt =utterance.text[6:]
+            response = self._playlist_summary()
         elif utterance.text.startswith("/ask_llm "):
             prompt = utterance.text[9:]
             response = self._ask_llm(prompt)
@@ -210,7 +244,7 @@ class MusicCRS(Agent):
         playlist.append(selected_track)
        
         if not playlist_data["cover"]:
-            cover_url = get_cover(selected_track["uri"])
+            cover_url,_ = get_cover(selected_track["uri"])
             if cover_url:
                 playlist_data["cover"] = cover_url
         return f"Added '{selected_track['artist']} – {selected_track['title']}' to playlist '{self._current_playlist}'."
@@ -219,7 +253,10 @@ class MusicCRS(Agent):
     def _select_track(self,track: str):
         title =  track.strip()
         message, result = search_track_title(title)
+        if not result :
+            return f"Not found in database"
         self._pending_selection = result  
+        message += "\nPlease choose a number."
         return f"{message}\n"
 
     def _add_track(self, track: str) -> str:
@@ -228,6 +265,8 @@ class MusicCRS(Agent):
 
         else :
             artist, title = [s.strip() for s in track.split(":", 1)]
+            print("Artist:",artist)
+            print("Title : ",title)
             result = search_track(artist, title)    
             if not result:
                 return f"'{artist}: {title}'not found in database."
@@ -244,7 +283,7 @@ class MusicCRS(Agent):
             playlist.append(result)
 
         if not playlist_data["cover"]:
-            cover_url = get_cover(result["uri"])
+            cover_url,_ = get_cover(result["uri"])
             if cover_url:
                 playlist_data["cover"] = cover_url
         return f"Added '{result.get('artist', artist)} – {result.get('title', title)}' to playlist '{self._current_playlist}'."
@@ -305,14 +344,111 @@ class MusicCRS(Agent):
         self._current_playlist = name
         return f"Created and switched to new playlist '{name}'."
     
-    def _get_album_by_title(self,track :str) -> str:
+    def _get_album(self,artist : str,title : str) -> str:
+        print(artist,title)
+        return get_album(artist,title)
+
+    def _get_artist_by_title(self, title: str):
+        return get_artist_by_title(title)
+
+    def _get_track_popularity(self, artist:str, title: str):
+        return get_track_popularity(artist,title)
+
+    def _get_most_popular_song_by_artist(self, artist: str):
+        return get_most_popular_song_by_artist(artist)
+
+    def _list_info(self):
+        message ="Here is a list of options you can use with the ChatBot: \n " \
+        "Here you will see the description of the command----> Here you will the command itself '/command'\n" \
+        "You can create multiple playlists and name it ----> /create 'Name'\n" \
+        "You can switch to another playlist ----> /swtich 'Name'\n" \
+        "You can add a song with the artist and the title ----> /add 'Artist':'Title'\n" \
+        "You can add a song with title only and select the artist that you want ----> /add_title 'Title'\n" \
+        "You can remove a song from your playlist ----> /remove 'Artist':'Title'\n" \
+        "You can view your playlist ----> /view \n" \
+        "You can ask questions about tracks here is a list of the questions :\n" \
+        "   \t\t----->/ask_track What is the most popular song of 'Artist'\n" \
+        "   \t\t----->/ask_track Which album contains 'Artist':'Title'\n" \
+        "   \t\t----->/ask_track In how many playlists appears 'Artist':'Title'\n" \
+        "   \t\t----->/ask_track Who is the artist of 'Title\n"
+        return message
+
+
+
+
+    def _playlist_summary(self):
+        playlist_data = self._playlists[self._current_playlist]
+        tracks = playlist_data["tracks"]
+
+    
+        if not tracks:
+            return "The playlist is empty."
+
+        total_duration_ms = 0
+        artist_counts = {}
+        album_counts = {}
+
+        for track in tracks:
+           
+            total_duration_ms += track.get("duration", 0)
+
+           
+            artist = track.get("artist", "Unknown")
+            artist_counts[artist] = artist_counts.get(artist, 0) + 1
+
+            album = track.get("album_name", "Unknown album")
+            album_counts[album] = album_counts.get(album, 0) + 1
+
+        
+        total_duration_min = total_duration_ms / 60000
+        most_common_artist = max(artist_counts, key=artist_counts.get)
+        most_common_album = max(album_counts, key=album_counts.get)
+        unique_artists = len(artist_counts)
+   
+        message = (
+            f"<b> Playlist Summary</b><br>"
+            f"Total tracks: {len(tracks)}<br>"
+            f"Total duration: {total_duration_min:.1f} minutes<br>"
+            f"Most frequent artist: {most_common_artist} ({artist_counts[most_common_artist]} songs)<br>"
+            f"Most frequent album: {most_common_album} ({album_counts[most_common_album]} songs)<br>"
+            f"Number of unique artists: {unique_artists}<br>"
+        )
+        return message
+
+    def _preview(self,track : str):    
         artist, title = [s.strip() for s in track.split(":", 1)]
-        return get_album_by_title(artist,title)
+        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+            client_id="6c5ce7f3ba45416ca6d5078ee52a6859",
+            client_secret="4e3727af29a344cfb89732c9a1abfbdf",
+            redirect_uri="http://127.0.0.1:8888/callback",
+            scope="user-read-playback-state,user-modify-playback-state,streaming"
+        ))
 
 
+        query = f"{artist} {title}"
+        results = sp.search(q=query, type="track", limit=1)
+        
+        if not results["tracks"]["items"]:
+            return f"Aucun morceau trouvé pour {artist} - {title}"
+
+        track = results["tracks"]["items"][0]
+        track_name = track["name"]
+        artist_name = track["artists"][0]["name"]
+        preview_url = track.get("preview_url")
+
+        if not preview_url:
+            return f"⚠️ Pas de preview disponible pour {artist_name} - {track_name}."
 
 
-
+        html_preview = f"""
+        🎵 {artist_name} - {track_name}<br>
+        <audio controls>
+            <source src="{preview_url}" type="audio/mpeg">
+            Votre navigateur ne supporte pas la lecture audio.
+        </audio>
+        """
+        return html_preview
+    
 if __name__ == "__main__":
     platform = FlaskSocketPlatform(MusicCRS)
     platform.start()

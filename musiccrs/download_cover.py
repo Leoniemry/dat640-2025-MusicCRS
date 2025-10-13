@@ -23,6 +23,7 @@ def get_cover(track_uri):
     track = sp.track(track_uri)
     track_name = track["name"]
     artist_name = track["artists"][0]["name"]
+    preview_url = track["preview_url"]
 
 
     cover_url = track["album"]["images"][0]["url"]  
@@ -37,4 +38,4 @@ def get_cover(track_uri):
         f.write(image_data)
 
     print(f"Cover téléchargée : {cover_path}")
-    return cover_path
+    return cover_path,preview_url

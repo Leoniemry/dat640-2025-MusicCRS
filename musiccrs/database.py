@@ -2,21 +2,25 @@ import json
 import os
 import requests
 from collections import Counter
+import sqlite3
 
-database_small_path ="C:/Users/Basti/Desktop/Phelma/3A/Stavanger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS/musiccrs/data/spotify_million_playlist_dataset_challenge/challenge_set.json"
-database_path = "C:/Users/Basti/Desktop/Phelma/3A/Stavaop/Phelma/3A/Stavanger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS/musiccrs/data/spotify_million_playlist_dataset_challenge/cnger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS/musiccrs/data/mpd.v1/data"
+DB_PATH = "musiccrs/data/music.db"
+database_small_path ="C:/Users/Basti/Desktop/Phelma/3A/Stavanger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS2/musiccrs/data/spotify_million_playlist_dataset_challenge/challenge_set.json"
+database_path = "C:/Users/Basti/Desktop/Phelma/3A/Stavaop/Phelma/3A/Stavanger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS2/musiccrs/data/spotify_million_playlist_dataset_challenge/cnger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS/musiccrs/data/mpd.v1/data"
 merged_path = os.path.join(database_path, "all_tracks.json")
 
+
+def get_connection():
+    return sqlite3.connect(DB_PATH)
+
+
 def load_database():
-    """Charge tous les fichiers JSON du dossier et crée un all_tracks.json fusionné"""
-    # Si le fichier fusionné existe déjà → le charger directement
     if os.path.exists(merged_path):
         with open(merged_path, "r", encoding="utf-8") as f:
             tracks = json.load(f)
-        print(f"✅ Base fusionnée chargée ({len(tracks)} morceaux).")
+        print(f"✅ Database merged charged : ({len(tracks)} tracks).")
         return tracks
 
-    # Sinon, parcourir tous les fichiers JSON et fusionner
     tracks = []
     for filename in os.listdir(database_path):
         if filename.endswith(".json") and filename != "all_tracks.json":
@@ -34,11 +38,11 @@ def load_database():
                             "duration":track.get("duration_ms","") 
                         })
             except Exception as e:
-                print(f"⚠️ Erreur chargement {filename}: {e}")
+                print(f"Error {filename}: {e}")
     with open(merged_path, "w", encoding="utf-8") as f:
         json.dump(tracks, f, indent=2, ensure_ascii=False)
     
-    print(f"💾 Fichier fusionné sauvegardé ({len(tracks)} morceaux).")
+    print(f"Merged file saved  : ({len(tracks)} morceaux).")
     return tracks
 
 
@@ -96,6 +100,5 @@ def search_track_title(title: str):
         if i > 5 :
             break
         message += f"{i}. {r['artist']} - {r['title']} ({r.get('album_name', 'Unknown album')})\n"
-    message += "\nPlease choose a number."
     return message, unique_result 
    
