@@ -1,5 +1,7 @@
 import "./ChatBox.css";
 
+import PlaylistPanel from "../PlaylistPanel";
+
 import React, {
   useState,
   useEffect,
@@ -31,12 +33,20 @@ export default function ChatBox() {
     onMessage,
     onRestart,
     giveFeedback,
+    onPlaylistUpdate,
   } = useSocket();
   const [chatMessages, setChatMessages] = useState<JSX.Element[]>([]);
   const [chatButtons, setChatButtons] = useState<JSX.Element[]>([]);
   const [inputValue, setInputValue] = useState<string>("");
   const chatMessagesRef = useRef(chatMessages);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const [playlist, setPlaylist] = useState({
+    name: "default",
+    tracks: [] as { artist: string; title: string }[],
+    cover: ""
+  });
+
 
   useEffect(() => {
     startConversation();
@@ -121,7 +131,17 @@ export default function ChatBox() {
   );
 
   useEffect(() => {
-    onMessage((message: ChatMessage) => {
+  onMessage((message: ChatMessage) => {
+      if (message.text?.startsWith("PLAYLIST_UPDATE::")) {
+        const [, name, playlistJson] = message.text.split("::");
+        const data = JSON.parse(playlistJson);
+        setPlaylist({
+          name,
+          tracks: [...data.tracks],
+          cover: data.cover || ""
+        });
+        return;
+      }
       handelMessage(message);
       handleButtons(message);
     });
@@ -134,48 +154,68 @@ export default function ChatBox() {
     });
   }, [onRestart]);
 
-  return (
-    <div className="chat-widget-content">
-      <MDBCard
-        id="chatBox"
-        className="chat-widget-card"
-        style={{ borderRadius: "15px" }}
-      >
-        <MDBCardHeader
-          className="d-flex justify-content-between align-items-center p-3 bg-info text-white border-bottom-0"
-          style={{
-            borderTopLeftRadius: "15px",
-            borderTopRightRadius: "15px",
-          }}
-        >
-          <p className="mb-0 fw-bold">{config.name}</p>
-          <p className="mb-0 fw-bold">{user?.username}</p>
-        </MDBCardHeader>
 
-        <MDBCardBody>
-          <div className="card-body-messages">
-            {chatMessages}
-            <div className="d-flex flex-wrap justify-content-between">
-              {chatButtons}
+  return (
+    <div style={{ 
+      display: "flex",
+      gap: 20,
+      flexWrap: "wrap"
+     }}
+    >
+
+      <div className="chat-widget-content">
+        <MDBCard
+          id="chatBox"
+          className="chat-widget-card"
+          style={{ borderRadius: "15px" }}
+        >
+          <MDBCardHeader
+            className="d-flex justify-content-between align-items-center p-3 bg-info text-white border-bottom-0"
+            style={{
+              borderTopLeftRadius: "15px",
+              borderTopRightRadius: "15px",
+            }}
+          >
+            <p className="mb-0 fw-bold">{config.name}</p>
+            <p className="mb-0 fw-bold">{user?.username}</p>
+          </MDBCardHeader>
+
+          <MDBCardBody>
+            <div className="card-body-messages">
+              {chatMessages}
+              <div className="d-flex flex-wrap justify-content-between">
+                {chatButtons}
+              </div>
             </div>
-          </div>
-        </MDBCardBody>
-        <MDBCardFooter className="text-muted d-flex justify-content-start align-items-center p-2">
-          <form className="d-flex flex-grow-1" onSubmit={handleInput}>
-            <input
-              type="text"
-              className="form-control form-control-lg"
-              id="ChatInput"
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Type message"
-              ref={inputRef}
-            ></input>
-            <button type="submit" className="btn btn-link text-muted">
-              <MDBIcon fas size="2x" icon="paper-plane" />
-            </button>
-          </form>
-        </MDBCardFooter>
-      </MDBCard>
+          </MDBCardBody>
+          <MDBCardFooter className="text-muted d-flex justify-content-start align-items-center p-2">
+            <form className="d-flex flex-grow-1" onSubmit={handleInput}>
+              <input
+                type="text"
+                className="form-control form-control-lg"
+                id="ChatInput"
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder="Type message"
+                ref={inputRef}
+              ></input>
+              <button type="submit" className="btn btn-link text-muted">
+                <MDBIcon fas size="2x" icon="paper-plane" />
+              </button>
+            </form>
+          </MDBCardFooter>
+        </MDBCard>
+      </div>
+
+
+      <div style={{ flex: "1 1 300px" }}>
+        <PlaylistPanel 
+          playlist={playlist} 
+          onAddSong={(songText) => {sendMessage({ message: `/add ${songText}` });}}
+          onRemoveSong={(songText) => {sendMessage({ message: `/remove ${songText}` });}}
+        />
+      </div>
+
+
     </div>
   );
 }

@@ -11,6 +11,9 @@ export default function useSocketConnection(
   const [connectError, setConnectError] = useState<Error | null>(null);
   const onMessageRef = useRef<(message: ChatMessage) => void>();
   const onRestartRef = useRef<() => void>();
+
+  const onPlaylistUpdateRef = useRef<(data: any) => void>();
+
   const onAuthenticationRef =
     useRef<(success: boolean, error: string) => void>();
 
@@ -53,6 +56,10 @@ export default function useSocketConnection(
     newSocket.on("authentication", ({ success, error }) => {
       onAuthenticationRef.current &&
         onAuthenticationRef.current(success, error);
+    });
+
+    newSocket.on("playlist_update", (data) => {
+      onPlaylistUpdateRef.current && onPlaylistUpdateRef.current(data);
     });
 
     return () => {
@@ -98,6 +105,10 @@ export default function useSocketConnection(
     onAuthenticationRef.current = callback;
   };
 
+  const onPlaylistUpdate = (callback: (data: any) => void) => {
+    onPlaylistUpdateRef.current = callback;
+  };
+
   return {
     isConnected,
     startConversation,
@@ -109,5 +120,6 @@ export default function useSocketConnection(
     login,
     register,
     onAuthentication,
+    onPlaylistUpdate,
   };
 }

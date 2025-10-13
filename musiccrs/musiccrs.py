@@ -14,7 +14,7 @@ from download_cover import get_cover
 from music_queries import *
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from play_spotify import*
+# from play_spotify import*
 
 
 OLLAMA_HOST = "https://ollama.ux.uis.no"
@@ -247,6 +247,7 @@ class MusicCRS(Agent):
             cover_url,_ = get_cover(selected_track["uri"])
             if cover_url:
                 playlist_data["cover"] = cover_url
+        self._emit_playlist_update()
         return f"Added '{selected_track['artist']} – {selected_track['title']}' to playlist '{self._current_playlist}'."
 
 
@@ -286,6 +287,7 @@ class MusicCRS(Agent):
             cover_url,_ = get_cover(result["uri"])
             if cover_url:
                 playlist_data["cover"] = cover_url
+        self._emit_playlist_update()
         return f"Added '{result.get('artist', artist)} – {result.get('title', title)}' to playlist '{self._current_playlist}'."
         
     def _remove_track(self, track: str) -> str:
@@ -300,11 +302,13 @@ class MusicCRS(Agent):
             if isinstance(item, dict):
                 if artist in item.get("artist", "").lower() and title in item.get("title", "").lower():
                     playlist_tracks.remove(item)
+                    self._emit_playlist_update()
                     return f"Deleted '{item.get('artist')} – {item.get('title')}' from playlist '{self._current_playlist}'."
             else:
                 s = item.lower()
                 if artist in s and title in s:
                     playlist_tracks.remove(item)
+                    self._emit_playlist_update()
                     return f"Deleted '{item}' from playlist '{self._current_playlist}'."
 
         return f"Song '{track}' not found in playlist '{self._current_playlist}'."
@@ -329,11 +333,13 @@ class MusicCRS(Agent):
         playlist_data = self._playlists[self._current_playlist]
         playlist_data["tracks"].clear()
         playlist_data["cover"] = None 
+        self._emit_playlist_update()
         return f"Playlist '{self._current_playlist}'now empty."
 
     def _switch_playlist(self, name: str) -> str:
         if name in self._playlists:
             self._current_playlist = name
+            self._emit_playlist_update()
             return f"Switched to playlist '{name}'."
         return f"Playlist '{name}' does not exist."
 
@@ -342,6 +348,7 @@ class MusicCRS(Agent):
             return f"Playlist '{name}' already exists."
         self._playlists[name] = {"tracks":[],"cover":None}
         self._current_playlist = name
+        self._emit_playlist_update()
         return f"Created and switched to new playlist '{name}'."
     
     def _get_album(self,artist : str,title : str) -> str:
@@ -418,8 +425,8 @@ class MusicCRS(Agent):
     def _preview(self,track : str):    
         artist, title = [s.strip() for s in track.split(":", 1)]
         sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id="6c5ce7f3ba45416ca6d5078ee52a6859",
-            client_secret="4e3727af29a344cfb89732c9a1abfbdf",
+            client_id="d6cd2b0da40544f38836bdbda50052c3",
+            client_secret="da1be530ec3147fe863d0cc360cf3bb2",
             redirect_uri="http://127.0.0.1:8888/callback",
             scope="user-read-playback-state,user-modify-playback-state,streaming"
         ))
@@ -448,7 +455,17 @@ class MusicCRS(Agent):
         </audio>
         """
         return html_preview
-    
+
+    def _emit_playlist_update(self):
+        playlist_data = self._playlists[self._current_playlist]
+        # On envoie un message spécial que le frontend peut reconnaître
+        self._dialogue_connector.register_agent_utterance(
+            AnnotatedUtterance(
+                f"PLAYLIST_UPDATE::{self._current_playlist}::{json.dumps(playlist_data)}",
+                participant=DialogueParticipant.AGENT
+            )
+        )
+
 if __name__ == "__main__":
     platform = FlaskSocketPlatform(MusicCRS)
     platform.start()
