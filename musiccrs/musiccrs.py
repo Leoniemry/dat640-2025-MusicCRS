@@ -302,12 +302,16 @@ class MusicCRS(Agent):
             if isinstance(item, dict):
                 if artist in item.get("artist", "").lower() and title in item.get("title", "").lower():
                     playlist_tracks.remove(item)
+                    if not playlist_data["tracks"]:
+                        playlist_data["cover"] = None
                     self._emit_playlist_update()
                     return f"Deleted '{item.get('artist')} – {item.get('title')}' from playlist '{self._current_playlist}'."
             else:
                 s = item.lower()
                 if artist in s and title in s:
                     playlist_tracks.remove(item)
+                    if not playlist_data["tracks"]:
+                        playlist_data["cover"] = None
                     self._emit_playlist_update()
                     return f"Deleted '{item}' from playlist '{self._current_playlist}'."
 
