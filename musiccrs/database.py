@@ -66,11 +66,28 @@ def load_small_database():
 TRACKS = load_small_database()
 
 def search_track(artist: str, title: str):
-    artist, title = artist.lower(), title.lower()
-    for t in TRACKS:
-        if artist in t["artist"].lower() and title in t["title"].lower():
-            return t
-    return None
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT artist_name, track_name, track_uri, album_name, duration_ms
+        FROM Track
+        WHERE LOWER(artist_name) LIKE ? AND LOWER(track_name) LIKE ?
+        LIMIT 1
+    """, (f"%{artist.lower()}%", f"%{title.lower()}%"))
+    result = cur.fetchone()
+    conn.close()
+
+    if result:
+        artist, t, uri, album, duration = result
+        return {
+            "artist": artist,
+            "title": t,
+            "uri": uri,
+            "album_name": album,
+            "duration": duration
+        }
+    else:
+        return None
 
 
 def popularity():
@@ -80,25 +97,25 @@ def popularity():
 
 
 def search_track_title(title: str):
-    message =f"Several tracks found for'{title}';\n"
-    artist_counts = popularity()
-    result = [t for t in TRACKS if title.lower() in t["title"].lower()]
-    result_sorted = sorted(result,key=lambda x: (-artist_counts[x['artist']], x['artist'].lower()))
-    if not result : 
-        return None, None
-    unique_result=[] 
-    unique_result_name = []
-    seen_artist = set()
-    for r in result_sorted:
-        artist_name  = r["artist"]
-        if artist_name not in seen_artist:
-            unique_result_name.append(artist_name)
-            unique_result.append(r)
-            seen_artist.add(artist_name)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT artist_name, track_name, track_uri, album_name, duration_ms FROM Track WHERE LOWER(track_name) = ?", (title.lower(),))
+    result = cur.fetchall()
+    conn.close()
 
-    for i, r in enumerate(unique_result, 1):
-        if i > 5 :
-            break
-        message += f"{i}. {r['artist']} - {r['title']} ({r.get('album_name', 'Unknown album')})\n"
-    return message, unique_result 
-   
+    if not result:
+        return None, None
+
+    message = f"Several tracks found for '{title}':\n"
+    unique_result = []
+    seen_artists = set()
+    for row in result:
+        artist, t, uri, album, duration = row
+        if artist not in seen_artists:
+            unique_result.append({"artist": artist, "title": t, "uri": uri, "album_name": album, "duration": duration})
+            seen_artists.add(artist)
+            message += f"{len(unique_result)}. {artist} - {t} ({album})\n"
+            if len(unique_result) >= 5:
+                break
+    return message, unique_result
