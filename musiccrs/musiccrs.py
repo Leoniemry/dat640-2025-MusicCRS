@@ -39,6 +39,7 @@ class MusicCRS(Agent):
 
         self._playlists = {"default":{"tracks" : [],"cover" : None}}  # Stores the current playlist
         self._current_playlist = "default"
+        self._pending_recommendations = None
 
     def welcome(self) -> None:
         """Sends the agent's welcome message."""
@@ -175,6 +176,43 @@ class MusicCRS(Agent):
                     ],
                 )
             ]
+        elif utterance.text.startswith("/recommend"):
+            response = self._recommend_songs().replace("\n", "<br>")
+
+        elif hasattr(self, "_pending_recommendations") and self._pending_recommendations:
+            user_input = utterance.text.strip().lower()
+
+            if user_input == "quit":
+                response = "Selection cancelled."
+                self._pending_recommendations = None
+            else:
+                try:
+                    # Sélection par espaces
+                    indices = [int(x)-1 for x in user_input.split()]
+                except ValueError:
+                    response = "Invalid input. Enter numbers separated by spaces or type 'quit' to cancel."
+                else:
+                    added_tracks = []
+                    invalid_indices = False
+                    for idx in indices:
+                        if 0 <= idx < len(self._pending_recommendations):
+                            track = self._pending_recommendations[idx]
+                            self._playlists[self._current_playlist]["tracks"].append(track)
+                            added_tracks.append(f"{track['artist']} – {track['title']}")
+                        else:
+                            invalid_indices = True
+
+                    if invalid_indices:
+                        response = "One or more numbers are out of range. Selection cancelled."
+                    elif added_tracks:
+                        self._emit_playlist_update()
+                        response = "Added:\n" + "\n".join(added_tracks)
+                    else:
+                        response = "No valid selections made."
+                    response = response.replace("\n", "<br>")
+                    self._pending_recommendations = None
+
+
         elif utterance.text == "/quit":
             self.goodbye()
             return
@@ -372,16 +410,17 @@ class MusicCRS(Agent):
         message ="Here is a list of options you can use with the ChatBot: \n " \
         "Here you will see the description of the command----> Here you will the command itself '/command'\n" \
         "You can create multiple playlists and name it ----> /create 'Name'\n" \
-        "You can switch to another playlist ----> /swtich 'Name'\n" \
+        "You can switch to another playlist ----> /switch 'Name'\n" \
         "You can add a song with the artist and the title ----> /add 'Artist':'Title'\n" \
         "You can add a song with title only and select the artist that you want ----> /add_title 'Title'\n" \
         "You can remove a song from your playlist ----> /remove 'Artist':'Title'\n" \
         "You can view your playlist ----> /view \n" \
         "You can ask questions about tracks here is a list of the questions :\n" \
         "   \t\t----->/ask_track What is the most popular song of 'Artist'\n" \
-        "   \t\t----->/ask_track Which album contains 'Artist':'Title'\n" \
+        "   \t\t----->/ask_track In which album contains 'Artist':'Title'\n" \
         "   \t\t----->/ask_track In how many playlists appears 'Artist':'Title'\n" \
-        "   \t\t----->/ask_track Who is the artist of 'Title\n"
+        "   \t\t----->/ask_track Who is the artist of 'Title\n" \
+        "You can get song recommendations based on your current playlist ----> /recommend"
         return message
 
 
@@ -472,6 +511,19 @@ class MusicCRS(Agent):
                 participant=DialogueParticipant.AGENT
             )
         )
+
+    def _recommend_songs(self):
+        current_playlist = self._playlists[self._current_playlist]["tracks"]
+        if not current_playlist:
+            return "Your playlist is empty. Please add a few song first."
+        recommendations = recommend_from_db(current_playlist)
+        self._pending_recommendations = recommendations
+
+        response = "<b>Recommended songs:</b><br>"
+        for i, r in enumerate(recommendations, 1):
+            response += f"<b>{i}. {r['artist']} - {r['title']}</b> ({r['reason']})<br>"
+        response += "<br>Please select the songs to add by typing their numbers separated by spaces, or type 'quit' to cancel."
+        return response
 
 if __name__ == "__main__":
     platform = FlaskSocketPlatform(MusicCRS)

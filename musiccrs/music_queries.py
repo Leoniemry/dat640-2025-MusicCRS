@@ -3,7 +3,7 @@ import os
 import requests
 from database import *
 
-
+from collections import Counter
 
 
 def get_artist_by_title(title: str):
@@ -92,3 +92,73 @@ def get_most_popular_song_by_artist(artist: str):
         return f"The most popular song by {chosen_artist} is '{track_name}' ({count} playlists)."
     else:
         return f"No popular song found for {chosen_artist}."
+
+def recommend_from_db(current_playlist_tracks):
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    current_track_uris = [t.get("track_uri") or t.get("uri") for t in current_playlist_tracks]
+    if not current_track_uris:
+        conn.close()
+        return []
+    
+
+    playlist_artists = {t.get("artist") for t in current_playlist_tracks if t.get("artist")}
+    playlist_albums = {t.get("album_name") for t in current_playlist_tracks if t.get("album_name")}
+
+    placeholders = ','.join(['?'] * len(current_track_uris))
+
+    cur.execute(f"""
+        SELECT pid, COUNT(*) as match_count
+        FROM PlaylistTrack
+        WHERE track_uri IN ({placeholders})
+        GROUP BY pid
+        ORDER BY match_count DESC
+        LIMIT 50
+    """, current_track_uris)
+    related_playlists = cur.fetchall()
+    if not related_playlists:
+        conn.close()
+        return []
+
+    related_pids = [pid for pid, _ in related_playlists]
+
+    placeholders_pids = ','.join(['?'] * len(related_pids))
+
+    cur.execute(f"""
+        SELECT pt.track_uri, tr.track_name, tr.artist_name, tr.album_name
+        FROM PlaylistTrack pt
+        JOIN Track tr ON pt.track_uri = tr.track_uri
+        WHERE pt.pid IN ({placeholders_pids})
+    """, related_pids)
+    candidates = cur.fetchall() 
+
+    freq_counter = {}
+    for track_uri, track_name, artist_name, album_name in candidates:
+        if track_uri not in current_track_uris: 
+            key = (track_uri, track_name, artist_name, album_name)
+            freq_counter[key] = freq_counter.get(key, 0) + 1
+
+    sorted_candidates = sorted(freq_counter.items(), key=lambda x: x[1], reverse=True)
+
+    recommendations = []
+    for (track_uri, track_name, artist_name, album_name), freq in sorted_candidates:
+        if album_name in playlist_albums:
+            reason = "From the same album as one of your tracks"
+        elif artist_name in playlist_artists:
+            reason = "Same artist as one of your tracks"
+        else:
+            reason = f"Appears in {freq} playlists containing some of your songs"
+
+        
+        recommendations.append({
+            "artist": artist_name,
+            "title": track_name,
+            "track_uri": track_uri,
+            "reason": reason
+        })
+        if len(recommendations) >= 5:
+            break
+
+    conn.close()
+    return recommendations
