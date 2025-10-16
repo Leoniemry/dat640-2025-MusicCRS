@@ -212,6 +212,13 @@ class MusicCRS(Agent):
                     response = response.replace("\n", "<br>")
                     self._pending_recommendations = None
 
+        elif utterance.text.startswith("/auto_playlist"):
+            description = utterance.text[len("/auto_playlist"):].strip()
+            response = self._create_auto_playlist(description).replace("\n", "<br>")
+
+
+
+
 
         elif utterance.text == "/quit":
             self.goodbye()
@@ -524,6 +531,66 @@ class MusicCRS(Agent):
             response += f"<b>{i}. {r['artist']} - {r['title']}</b> ({r['reason']})<br>"
         response += "<br>Please select the songs to add by typing their numbers separated by spaces, or type 'quit' to cancel."
         return response
+
+
+    def _create_auto_playlist(self, description: str):
+        """Crée une nouvelle playlist automatiquement selon une description."""
+        if not description:
+            return "Please provide a description (e.g., /auto_playlist sad love songs)."
+
+        
+        playlist_name = description.replace(" ", "_").lower()
+
+        if playlist_name in self._playlists:
+            return f"A playlist '{playlist_name}' already exists."
+
+        
+        self._playlists[playlist_name] = {"tracks": [], "cover": None}
+        self._current_playlist = playlist_name
+
+        
+        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+            client_id="b408182a8de64714ad698d1841704963",
+            client_secret="82d8b8299a374b7686b613c3db446819",
+            redirect_uri="http://127.0.0.1:8888/callback",
+            scope="user-read-playback-state,user-modify-playback-state,streaming"
+        ))
+
+
+        
+        results = sp.search(q=description, type="track", limit=10)
+        items = results.get("tracks", {}).get("items", [])
+
+        if not items:
+            return f"No tracks found for '{description}'."
+
+        added_tracks = []
+        for track in items:
+            info = {
+                "artist": track["artists"][0]["name"],
+                "title": track["name"],
+                "album_name": track["album"]["name"],
+                "uri": track["uri"],
+                "duration": track["duration_ms"],
+            }
+     
+            self._playlists[playlist_name]["tracks"].append(info)
+            added_tracks.append(f"{info['artist']} – {info['title']}")
+
+
+        cover_url = items[0]["album"]["images"][0]["url"] if items[0]["album"]["images"] else None
+        if cover_url:
+            self._playlists[playlist_name]["cover"] = cover_url
+
+        self._emit_playlist_update()
+
+        return f"🎶 Created playlist '<b>{playlist_name}</b>' based on '{description}' with {len(added_tracks)} songs:<br>" + "<br>".join(added_tracks)
+
+
+
+
+
+
 
 if __name__ == "__main__":
     platform = FlaskSocketPlatform(MusicCRS)

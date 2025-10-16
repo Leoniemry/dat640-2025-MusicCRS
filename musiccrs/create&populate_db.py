@@ -1,7 +1,7 @@
 import os
 import json
 import sqlite3
-
+from tqdm import tqdm
 
 
 DATA_DIR = "musiccrs/data/mpd.v1/data"
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS PlaylistTrack (
 conn.commit()
 
 
-json_files = sorted(os.listdir(DATA_DIR))[:100] 
+json_files = sorted(os.listdir(DATA_DIR))
 
 for filename in tqdm(json_files, desc="Processing JSON slices"):
     filepath = os.path.join(DATA_DIR, filename)
