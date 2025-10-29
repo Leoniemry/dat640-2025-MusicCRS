@@ -1,6 +1,8 @@
 """MusicCRS conversational agent."""
 
 import ollama
+import json
+import httpx
 from dialoguekit.core.annotated_utterance import AnnotatedUtterance
 from dialoguekit.core.dialogue_act import DialogueAct
 from dialoguekit.core.intent import Intent
@@ -14,12 +16,14 @@ from download_cover import get_cover
 from music_queries import *
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from ollama import Client
+
 # from play_spotify import*
 
 
-OLLAMA_HOST = "https://ollama.ux.uis.no"
-OLLAMA_MODEL = "llama3.3:70b"
-OLLAMA_API_KEY = "SET YOUR API KEY HERE"
+OLLAMA_HOST = "http://localhost:11434"
+OLLAMA_MODEL = "gemma3"
+OLLAMA_API_KEY = "sk-808e32d8c59c41a0bd376fa9eec1797b"
 
 _INTENT_OPTIONS = Intent("OPTIONS")
 
@@ -217,12 +221,14 @@ class MusicCRS(Agent):
             response = self._create_auto_playlist(description).replace("\n", "<br>")
 
 
-
-
-
         elif utterance.text == "/quit":
             self.goodbye()
             return
+        
+        elif not utterance.text.startswith("/"):
+            # Natural language handling
+            response = self._handle_natural_language(utterance.text).replace("\n", "<br>")
+        
         else:
             response = "I'm sorry, I don't understand that command."
         self._dialogue_connector.register_agent_utterance(
@@ -590,6 +596,148 @@ class MusicCRS(Agent):
 
 
 
+
+    def _handle_natural_language(self, user_input: str):
+        """
+        Interprets the user's free text input and maps it to the right playlist or music database action.
+        Supports 'add', 'add_title', 'remove', 'create', 'show', 'clear', 'switch', and music questions.
+        """
+
+        prompt = f"""
+    You are a natural language interpreter for a conversational music assistant.
+
+    From the following user message, identify the intent and key parameters.
+    Respond **ONLY** in valid JSON (no text before or after).
+
+    Possible intents:
+    - "add" → add a song to playlist (artist and title given)
+    - "add_title" → add a song when only the title is provided
+    - "remove" → remove a song from playlist
+    - "show" → show current playlist
+    - "clear" → clear playlist
+    - "switch" → switch playlist
+    - "create" → create new playlist
+    - "ask_artist" → user wants to know the artist of a song
+    - "ask_album" → user asks which album a song belongs to
+    - "ask_popular_song" → user asks the most popular song by an artist
+    - "ask_popularity" → user asks how many playlists contain a song
+    - "unknown" → cannot determine
+
+    JSON Schema:
+    {{
+    "intent": "<intent>",
+    "song": "<song title or null>",
+    "artist": "<artist name or null>",
+    "playlist": "<playlist name or null>"
+    }}
+
+    User message: "{user_input}"
+    """
+
+        try:
+            response = httpx.post(
+                f"{OLLAMA_HOST}/api/generate",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                },
+                timeout=60
+            )
+
+            if response.status_code != 200:
+                print(f"⚠️ Ollama HTTP {response.status_code}: {response.text}")
+                return "Error contacting the LLM."
+
+            data = response.json()
+            text = data.get("response") or data.get("text") or ""
+
+            print("🧠 Raw Ollama response:", text)
+
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1:
+                text = text[start:end + 1]
+            else:
+                raise ValueError("No JSON found in LLM response.")
+
+            parsed = json.loads(text)
+
+        except Exception as e:
+            print("⚠️ Error calling or parsing Ollama response:", e)
+            parsed = {"intent": "unknown", "artist": None, "song": None, "playlist": None}
+
+        # --- Extraction
+        intent = parsed.get("intent", "unknown").lower()
+        artist = parsed.get("artist")
+        title = parsed.get("song")
+        playlist = parsed.get("playlist")
+
+        print(f"🎯 Parsed intent: {intent}, artist={artist}, song={title}, playlist={playlist}")
+
+        # --- Routage des intents
+        if intent == "add":
+            if artist and title:
+                return self._add_track(f"{artist}: {title}")
+            elif title:
+                # Si l’utilisateur n’a pas mis d’artiste, on bascule sur la recherche par titre
+                return self._select_track(title)
+            return "I didn’t understand which song to add."
+
+        elif intent == "add_title":
+            if title:
+                return self._select_track(title)
+            return "Please specify a song title to add."
+
+        elif intent == "remove":
+            if artist and title:
+                return self._remove_track(f"{artist}: {title}")
+            elif title:
+                return self._remove_track(title)
+            return "I didn’t understand which song to remove."
+
+        elif intent == "show":
+            return self._view_playlist()
+
+        elif intent == "clear":
+            return self._clear_playlist()
+
+        elif intent == "switch":
+            if playlist:
+                return self._switch_playlist(playlist)
+            return "I didn’t understand which playlist to switch to."
+
+        elif intent == "create":
+            if playlist:
+                return self._create_playlist(playlist)
+            return "I didn’t understand the name of the new playlist."
+
+        # --- Questions musicales
+        elif intent == "ask_artist":
+            if title:
+                return self._get_artist_by_title(title)
+            return "Please specify the song name."
+
+        elif intent == "ask_album":
+            if artist and title:
+                return get_album(artist, title)
+            elif title:
+                return f"Please specify the artist to find the album for '{title}'."
+            return "Please specify both artist and song."
+
+        elif intent == "ask_popular_song":
+            if artist:
+                return self._get_most_popular_song_by_artist(artist)
+            return "Please specify which artist you are referring to."
+
+        elif intent == "ask_popularity":
+            if artist and title:
+                return self._get_track_popularity(artist, title)
+            return "Please specify both artist and title to check song popularity."
+
+        else:
+            return "I'm not sure what you meant. Could you rephrase?"
 
 
 if __name__ == "__main__":
