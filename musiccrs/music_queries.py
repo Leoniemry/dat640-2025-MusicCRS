@@ -24,21 +24,29 @@ def get_artist_by_title(title: str):
         return f"No artist found for '{title}'."
 
 def get_album(artist: str, title: str):
+    print(f"🔎 get_album() called with artist='{artist}' | title='{title}'")
+
     conn = get_connection()
     cur = conn.cursor()
+
     cur.execute("""
     SELECT DISTINCT album_name
     FROM Track
-    WHERE LOWER(track_name) LIKE LOWER(?) AND LOWER(artist_name) LIKE LOWER(?)
-    """, (title, artist))
+    WHERE LOWER(track_name) LIKE LOWER(?) 
+      AND LOWER(artist_name) LIKE LOWER(?)
+    """, (f"%{title.strip()}%", f"%{artist.strip()}%"))
 
-    albums = [row[0] for row in cur.fetchall()]
+    rows = cur.fetchall()
+    print(f"🧠 SQL returned {len(rows)} results: {rows[:3]}")
+
     conn.close()
-
-    if albums:
+    
+    if rows:
+        albums = [row[0] for row in rows]
         return f"'{title}' by {artist} appears in albums: {', '.join(albums[:5])}."
     else:
         return f"No album found for '{title}' by {artist}."
+
 
 def get_track_popularity(artist: str, title: str):
     conn = get_connection()
