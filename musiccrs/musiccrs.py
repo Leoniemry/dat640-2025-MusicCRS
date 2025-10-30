@@ -1,5 +1,5 @@
 """MusicCRS conversational agent."""
-
+import re
 import ollama
 import json
 import httpx
@@ -20,7 +20,7 @@ from ollama import Client
 
 # from play_spotify import*
 
-
+ 
 OLLAMA_HOST = "http://localhost:11434"
 OLLAMA_MODEL = "gemma3"
 OLLAMA_API_KEY = "sk-808e32d8c59c41a0bd376fa9eec1797b"
@@ -85,18 +85,38 @@ class MusicCRS(Agent):
 
         elif hasattr(self, "_pending_selection") and self._pending_selection:
             user_input = utterance.text.strip().lower()
-            if user_input == "quit":
-                response = "Selection cancelled."
+
+            # --- ✅ Détection d’annulation explicite ---
+            cancel_keywords = [
+                "cancel", "stop", "nothing", "forget it", "don't add", "dont add",
+                "leave it", "rien", "laisse tomber", "n'ajoute rien", "anything", "none"
+            ]
+            if any(kw in user_input for kw in cancel_keywords):
+                response = "❌ Selection cancelled. Nothing will be added."
                 self._pending_selection = None
-            else:
-                try:
-                    number = int(user_input)
-                except ValueError:
-                    response = "Please enter a valid number or type 'quit' to cancel."
-                else:
-                    result = self._pending_selection
-                    response = self._add_track_title(title="", number=number, result=result).replace("\n", "<br>")
-                    self._pending_selection = None
+                # ✅ On répond et on sort immédiatement
+                self._dialogue_connector.register_agent_utterance(
+                    AnnotatedUtterance(
+                        response,
+                        participant=DialogueParticipant.AGENT,
+                        dialogue_acts=[]
+                    )
+                )
+                return  # ⛔ Stoppe ici — ne touche pas au LLM ensuite
+
+            # --- Sinon, on traite normalement la sélection ---
+            response = self._handle_selection_response(user_input)
+
+            self._dialogue_connector.register_agent_utterance(
+                AnnotatedUtterance(
+                    response,
+                    participant=DialogueParticipant.AGENT,
+                    dialogue_acts=[]
+                )
+            )
+            return  # ⛔ On sort ici aussi pour ne pas passer à _handle_natural_language
+
+
         elif utterance.text.startswith("/add"):
             track = utterance.text[5:].strip()  
             response = self._add_track(track).replace("\n", "<br>")
@@ -183,38 +203,7 @@ class MusicCRS(Agent):
         elif utterance.text.startswith("/recommend"):
             response = self._recommend_songs().replace("\n", "<br>")
 
-        elif hasattr(self, "_pending_recommendations") and self._pending_recommendations:
-            user_input = utterance.text.strip().lower()
-
-            if user_input == "quit":
-                response = "Selection cancelled."
-                self._pending_recommendations = None
-            else:
-                try:
-                    # Sélection par espaces
-                    indices = [int(x)-1 for x in user_input.split()]
-                except ValueError:
-                    response = "Invalid input. Enter numbers separated by spaces or type 'quit' to cancel."
-                else:
-                    added_tracks = []
-                    invalid_indices = False
-                    for idx in indices:
-                        if 0 <= idx < len(self._pending_recommendations):
-                            track = self._pending_recommendations[idx]
-                            self._playlists[self._current_playlist]["tracks"].append(track)
-                            added_tracks.append(f"{track['artist']} – {track['title']}")
-                        else:
-                            invalid_indices = True
-
-                    if invalid_indices:
-                        response = "One or more numbers are out of range. Selection cancelled."
-                    elif added_tracks:
-                        self._emit_playlist_update()
-                        response = "Added:\n" + "\n".join(added_tracks)
-                    else:
-                        response = "No valid selections made."
-                    response = response.replace("\n", "<br>")
-                    self._pending_recommendations = None
+        
 
         elif utterance.text.startswith("/auto_playlist"):
             description = utterance.text[len("/auto_playlist"):].strip()
@@ -225,6 +214,94 @@ class MusicCRS(Agent):
             self.goodbye()
             return
         
+
+
+
+                # --- ✅ Si l'utilisateur répond après une recommandation ---
+                # --- ✅ Si l'utilisateur répond après une recommandation ---
+        elif hasattr(self, "_pending_recommendations") and self._pending_recommendations:
+            user_input = utterance.text.strip().lower()
+
+            # --- annulation explicite ---
+            if user_input in {"quit", "cancel", "stop", "nothing"}:
+                self._pending_recommendations = None
+                response = "❌ Recommendation selection cancelled."
+            else:
+                try:
+                    # --- 🧠 On demande au LLM d'interpréter la commande ---
+                    prompt = f"""
+                    The user was shown a list of {len(self._pending_recommendations)} recommended songs, numbered 1 to {len(self._pending_recommendations)}.
+                    The user said: "{user_input}"
+
+                    Return ONLY valid JSON describing what to do:
+                    {{
+                        "select": [list of song numbers to add] OR
+                        "select": "all" OR
+                        "cancel": true
+                    }}
+
+                    Examples:
+                    - "add the first two" → {{ "select": [1,2] }}
+                    - "add all" → {{ "select": "all" }}
+                    - "add everything except the last one" → {{ "select": [1,2,3,4] }}
+                    - "quit" → {{ "cancel": true }}
+                    """
+
+                    response_llm = httpx.post(
+                        f"{OLLAMA_HOST}/api/generate",
+                        headers={"Content-Type": "application/json"},
+                        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+                        timeout=30
+                    )
+
+                    data = response_llm.json()
+                    text = data.get("response") or data.get("text") or ""
+                    print(f"🧠 Raw LLM output (recommend): {text}")
+
+                    start, end = text.find("{"), text.rfind("}")
+                    if start != -1 and end != -1:
+                        parsed = json.loads(text[start:end + 1])
+                    else:
+                        raise ValueError("Invalid JSON from LLM")
+
+                    if parsed.get("cancel") is True:
+                        self._pending_recommendations = None
+                        response = "❌ Recommendation selection cancelled."
+                    else:
+                        recs = self._pending_recommendations
+                        added_tracks = []
+
+                        if parsed.get("select") == "all":
+                            selected_indices = range(1, len(recs) + 1)
+                        else:
+                            selected_indices = parsed.get("select", [])
+
+                        for i in selected_indices:
+                            if 1 <= i <= len(recs):
+                                track = recs[i - 1]
+                                self._playlists[self._current_playlist]["tracks"].append(track)
+                                added_tracks.append(f"{track['artist']} – {track['title']}")
+
+                        if added_tracks:
+                            self._emit_playlist_update()
+                            response = "✅ Added:\n" + "\n".join(added_tracks)
+                        else:
+                            response = "No valid tracks selected."
+
+                except Exception as e:
+                    print("⚠️ Error parsing recommendation selection:", e)
+                    response = "I couldn’t understand your selection."
+
+            self._pending_recommendations = None
+            self._dialogue_connector.register_agent_utterance(
+                AnnotatedUtterance(
+                    response,
+                    participant=DialogueParticipant.AGENT,
+                    dialogue_acts=[],
+                )
+            )
+            return  # ⛔ stop ici pour ne pas passer à l’interprétation LLM
+
         elif not utterance.text.startswith("/"):
             # Natural language handling
             response = self._handle_natural_language(utterance.text).replace("\n", "<br>")
@@ -279,8 +356,8 @@ class MusicCRS(Agent):
     
 
     def _add_track_title(self,title : str, number : str,result :list):
-        if not result or number < 1 or number > len(result):
-            return "Invalid selection."
+        """if not result or number < 1 or number > len(result):
+            return "Invalid selection."""
 
         playlist_data = self._playlists[self._current_playlist]
         playlist = playlist_data["tracks"]
@@ -515,6 +592,126 @@ class MusicCRS(Agent):
         """
         return html_preview
 
+
+    def _handle_selection_response(self, user_input: str):
+        """Handles user's response after showing a list of possible tracks."""
+        if not hasattr(self, "_pending_selection") or not self._pending_selection:
+            return "No selection in progress."
+
+        result = self._pending_selection
+
+        # --- ✅ Détection explicite d'annulation avant tout ---
+        cancel_keywords = [
+            "cancel", "stop", "nothing", "forget it", "don't add", "dont add",
+            "leave it", "rien", "laisse tomber", "n'ajoute rien", "anything", "none"
+        ]
+        if any(kw in user_input.lower() for kw in cancel_keywords):
+            self._pending_selection = None
+            return "❌ Okay, nothing will be added."
+
+        prompt = f"""
+        You are helping the user select songs from a list of {len(result)} tracks.
+        The user wrote: "{user_input}"
+
+        Return ONLY valid JSON in this format:
+        {{
+            "select": [list of numbers to add] OR
+            "exclude": [list of numbers or artist names to skip] OR
+            "select": "all" OR
+            "cancel": true
+        }}
+        """
+
+        try:
+            response_llm = httpx.post(
+                f"{OLLAMA_HOST}/api/generate",
+                headers={"Content-Type": "application/json"},
+                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+                timeout=30
+            )
+            data = response_llm.json()
+            text = data.get("response") or data.get("text") or ""
+            print(f"🧠 Raw LLM output: {text}")
+
+            # --- Nettoyage léger de la sortie avant parsing ---
+            text = text.strip().replace("‘", "\"").replace("’", "\"").replace("“", "\"").replace("”", "\"")
+            start, end = text.find("{"), text.rfind("}")
+            if start != -1 and end != -1:
+                json_part = text[start:end + 1]
+                parsed = json.loads(json_part)
+            else:
+                raise ValueError("Invalid JSON from LLM")
+
+        except Exception as e:
+            print("⚠️ Error parsing LLM JSON, fallback:", e)
+            parsed = {}
+
+        # --- Si parsing échoue, fallback manuel ---
+        if not parsed:
+            parsed = {}
+            words = user_input.lower().split()
+            select = []
+            if "all" in words:
+                parsed["select"] = "all"
+            elif "first" in words:
+                n = 1
+                for w in words:
+                    if w.isdigit():
+                        n = int(w)
+                        break
+                    elif w in {"two", "three", "four", "five"}:
+                        mapping = {"two": 2, "three": 3, "four": 4, "five": 5}
+                        n = mapping[w]
+                        break
+                parsed["select"] = list(range(1, n + 1))
+            elif "last" in words:
+                parsed["exclude"] = [len(result)]
+
+        # --- Cas : annulation
+        if parsed.get("cancel"):
+            self._pending_selection = None
+            return "❌ Okay, nothing will be added."
+
+        playlist = self._playlists[self._current_playlist]["tracks"]
+        added_tracks = []
+
+        # --- Cas : sélection complète
+        if parsed.get("select") == "all":
+            for track in result:
+                playlist.append(track)
+                added_tracks.append(f"{track['artist']} – {track['title']}")
+
+        # --- Cas : indices précis
+        elif isinstance(parsed.get("select"), list):
+            for i in parsed["select"]:
+                if 1 <= i <= len(result):
+                    track = result[i - 1]
+                    playlist.append(track)
+                    added_tracks.append(f"{track['artist']} – {track['title']}")
+
+        # --- Cas : exclusion
+        elif "exclude" in parsed:
+            excluded_indices = set()
+            excluded_artists = set(str(x).lower() for x in parsed["exclude"])
+            for e in parsed["exclude"]:
+                if str(e).isdigit():
+                    excluded_indices.add(int(e))
+            for i, track in enumerate(result, 1):
+                if i not in excluded_indices and track["artist"].lower() not in excluded_artists:
+                    playlist.append(track)
+                    added_tracks.append(f"{track['artist']} – {track['title']}")
+
+        self._pending_selection = None
+        if added_tracks:
+            self._emit_playlist_update()
+            return "✅ Added:\n" + "\n".join(added_tracks)
+        else:
+            return "No valid songs selected."
+
+
+
+
+
     def _emit_playlist_update(self):
         playlist_data = self._playlists[self._current_playlist]
         # On envoie un message spécial que le frontend peut reconnaître
@@ -524,6 +721,9 @@ class MusicCRS(Agent):
                 participant=DialogueParticipant.AGENT
             )
         )
+
+
+
 
     def _recommend_songs(self):
         current_playlist = self._playlists[self._current_playlist]["tracks"]
@@ -602,37 +802,85 @@ class MusicCRS(Agent):
         Interprets the user's free text input and maps it to the right playlist or music database action.
         Supports 'add', 'add_title', 'remove', 'create', 'show', 'clear', 'switch', and music questions.
         """
+       
+
+
 
         prompt = f"""
-    You are a natural language interpreter for a conversational music assistant.
+            You are a precise natural language parser for a **music assistant**.
+            Your task is to extract the exact artist, song, and playlist names from the user's message.
 
-    From the following user message, identify the intent and key parameters.
-    Respond **ONLY** in valid JSON (no text before or after).
+            ⚠️ Important formatting rules:
+            - Preserve ALL special characters in song titles (quotes, parentheses, accents, &, etc.).
+            - Do NOT simplify or shorten the title.
+            - Do NOT remove text inside parentheses or after dashes.
+            - Always output valid JSON and nothing else.
 
-    Possible intents:
-    - "add" → add a song to playlist (artist and title given)
-    - "add_title" → add a song when only the title is provided
-    - "remove" → remove a song from playlist
-    - "show" → show current playlist
-    - "clear" → clear playlist
-    - "switch" → switch playlist
-    - "create" → create new playlist
-    - "ask_artist" → user wants to know the artist of a song
-    - "ask_album" → user asks which album a song belongs to
-    - "ask_popular_song" → user asks the most popular song by an artist
-    - "ask_popularity" → user asks how many playlists contain a song
-    - "unknown" → cannot determine
+            Supported intents:
+            - "add" → add a song when both artist and title are provided
+            - "add_title" → add a song when only the title is mentioned (no artist)
+            - "add_selection" → user selects from a list (e.g. 'add first three', 'add all except Paul')
+            - "remove" → remove a song from a playlist
+            - "create" → create a new playlist
+            - "show" → show current playlist
+            - "clear" → clear the playlist
+            - "switch" → switch playlists
+            - "cancel" → user decides not to add or remove anything
+            - "ask_artist" → ask who is the artist of a given song
+            - "ask_album" → ask which album a song belongs to
+            - "ask_popular_song" → ask the most popular song by an artist
+            - "ask_popularity" → ask in how many playlists a song appears
+            - "unknown" → for unrecognized queries
 
-    JSON Schema:
-    {{
-    "intent": "<intent>",
-    "song": "<song title or null>",
-    "artist": "<artist name or null>",
-    "playlist": "<playlist name or null>"
-    }}
+            Example:
+            User: Add 'Creepin' (with The Weeknd & 21 Savage)' by Metro Boomin
+            → {{
+            "intent": "add",
+            "artist": "Metro Boomin",
+            "song": "Creepin' (with The Weeknd & 21 Savage)",
+            "playlist": null
+            }}
 
-    User message: "{user_input}"
-    """
+            User: Add 'Let It Be'
+            → {{
+            "intent": "add_title",
+            "artist": null,
+            "song": "Let It Be",
+            "playlist": null
+            }}
+
+            User: Actually, don't add anything
+            → {{
+            "intent": "cancel",
+            "artist": null,
+            "song": null,
+            "playlist": null
+            }}
+
+            User: Create a new playlist called Chill Vibes
+            → {{
+            "intent": "create",
+            "artist": null,
+            "song": null,
+            "playlist": "Chill Vibes"
+            }}
+
+            User: "Forget it, don’t add anything"
+            → {{
+            "intent": "cancel",
+            "artist": null,
+            "song": null,
+            "playlist": null
+            }}
+
+            Now extract JSON for this message:
+
+            User message: "{user_input}"
+            """
+
+
+
+
 
         try:
             response = httpx.post(
@@ -735,6 +983,21 @@ class MusicCRS(Agent):
             if artist and title:
                 return self._get_track_popularity(artist, title)
             return "Please specify both artist and title to check song popularity."
+        
+        elif intent == "add_selection" and hasattr(self, "_pending_selection") and self._pending_selection:
+            return self._handle_selection_response(parsed.get("selection", user_input))
+        
+        elif intent == "cancel" or any(
+            word in user_input.lower()
+            for word in ["cancel", "stop", "nothing", "forget it", "don't add", "dont add", "leave it", "rien", "laisse tomber", "n'ajoute rien","anything"]
+        ):
+            if hasattr(self, "_pending_selection") and self._pending_selection:
+                self._pending_selection = None
+                return "Alright, nothing will be added."
+            else:
+                return "Okay, no changes made."
+
+
 
         else:
             return "I'm not sure what you meant. Could you rephrase?"
