@@ -20,10 +20,18 @@ from ollama import Client
 
 # from play_spotify import*
 
- 
 OLLAMA_HOST = "http://localhost:11434"
 OLLAMA_MODEL = "gemma3"
 OLLAMA_API_KEY = "sk-808e32d8c59c41a0bd376fa9eec1797b"
+
+# OLLAMA_HOST = "http://ollama.ux.uis.no"
+# OLLAMA_MODEL = "llama3.3:70b"
+# OLLAMA_API_KEY = "sk-808e32d8c59c41a0bd376fa9eec1797b"
+
+ollama_client = Client(
+    host=OLLAMA_HOST,
+    headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"}
+)
 
 _INTENT_OPTIONS = Intent("OPTIONS")
 
@@ -76,11 +84,11 @@ class MusicCRS(Agent):
             response = self._list_info().replace("\t", "&emsp;").replace("\n", "<br>")
 
         elif utterance.text.startswith("/play"):
-            track = utterance.text[6:].strip()  
+            track = utterance.text[6:].strip()
             response = self._preview(track).replace("\n", "<br>")
 
         elif utterance.text.startswith("/add_title"):
-            track = utterance.text[10:].strip()  
+            track = utterance.text[10:].strip()
             response = self._select_track(track).replace("\n", "<br>")
 
         elif hasattr(self, "_pending_selection") and self._pending_selection:
@@ -118,7 +126,7 @@ class MusicCRS(Agent):
 
 
         elif utterance.text.startswith("/add"):
-            track = utterance.text[5:].strip()  
+            track = utterance.text[5:].strip()
             response = self._add_track(track).replace("\n", "<br>")
         elif utterance.text.startswith("/remove"):
             track = utterance.text[8:].strip().replace("\n", "<br>")
@@ -141,7 +149,7 @@ class MusicCRS(Agent):
                 title = question.split("artist of")[-1].strip()
                 print(title)
                 response = self._get_artist_by_title(title).replace("\n", "<br>")
-                
+
 
             elif "album" in question:
                 query = utterance.text[len("/ask_track"):].strip()
@@ -170,7 +178,7 @@ class MusicCRS(Agent):
 
                 query = question
                 query = query.replace("how many playlists", "").replace("appears", "").replace("appear","").replace("how many playlist", "").strip()
-               
+
                 if ":" in query:
                     artist, title = [s.strip() for s in query.split(":", 1)]
                     print(artist)
@@ -178,7 +186,7 @@ class MusicCRS(Agent):
                     response = self._get_track_popularity(artist, title).replace("\n", "<br>")
                 else:
                     response = "Please specify both artist and title using 'Artist:Title'."
-                    
+
         elif utterance.text.startswith("/stat"):
             prompt =utterance.text[6:]
             response = self._playlist_summary()
@@ -203,7 +211,7 @@ class MusicCRS(Agent):
         elif utterance.text.startswith("/recommend"):
             response = self._recommend_songs().replace("\n", "<br>")
 
-        
+
 
         elif utterance.text.startswith("/auto_playlist"):
             description = utterance.text[len("/auto_playlist"):].strip()
@@ -213,7 +221,7 @@ class MusicCRS(Agent):
         elif utterance.text == "/quit":
             self.goodbye()
             return
-        
+
 
 
 
@@ -305,7 +313,7 @@ class MusicCRS(Agent):
         elif not utterance.text.startswith("/"):
             # Natural language handling
             response = self._handle_natural_language(utterance.text).replace("\n", "<br>")
-        
+
         else:
             response = "I'm sorry, I don't understand that command."
         self._dialogue_connector.register_agent_utterance(
@@ -353,7 +361,7 @@ class MusicCRS(Agent):
             + "\n".join([f"<li>{option}</li>" for option in options])
             + "</ol>\n"
         )
-    
+
 
     def _add_track_title(self,title : str, number : str,result :list):
         """if not result or number < 1 or number > len(result):
@@ -370,7 +378,7 @@ class MusicCRS(Agent):
                 if a_norm == item.get('artist', '').lower() and t_norm == item.get('title', '').lower():
                     return f"'{selected_track['artist']} – {selected_track['title']}' is already in playlist '{self._current_playlist}'."
         playlist.append(selected_track)
-       
+
         if not playlist_data["cover"]:
             cover_url,_ = get_cover(selected_track["uri"])
             if cover_url:
@@ -384,7 +392,7 @@ class MusicCRS(Agent):
         message, result = search_track_title(title)
         if not result :
             return f"Not found in database"
-        self._pending_selection = result  
+        self._pending_selection = result
         message += "\nPlease choose a number."
         return f"{message}\n"
 
@@ -396,7 +404,7 @@ class MusicCRS(Agent):
             artist, title = [s.strip() for s in track.split(":", 1)]
             print("Artist:",artist)
             print("Title : ",title)
-            result = search_track(artist, title)    
+            result = search_track(artist, title)
             if not result:
                 return f"'{artist}: {title}'not found in database."
             playlist_data = self._playlists[self._current_playlist]
@@ -408,7 +416,7 @@ class MusicCRS(Agent):
             for item in playlist:
                 if isinstance(item, dict):
                     if a_norm == item.get("artist", "").lower() and t_norm == item.get("title", "").lower():
-                        return f"'{result.get('artist')} – {result.get('title')}'is already in playlist'{self._current_playlist}'." 
+                        return f"'{result.get('artist')} – {result.get('title')}'is already in playlist'{self._current_playlist}'."
             playlist.append(result)
 
         if not playlist_data["cover"]:
@@ -417,7 +425,7 @@ class MusicCRS(Agent):
                 playlist_data["cover"] = cover_url
         self._emit_playlist_update()
         return f"Added '{result.get('artist', artist)} – {result.get('title', title)}' to playlist '{self._current_playlist}'."
-        
+
     def _remove_track(self, track: str) -> str:
         if ":" not in track:
             return "Invalid syntax, please use Artist:Song."
@@ -426,7 +434,7 @@ class MusicCRS(Agent):
         playlist_data = self._playlists[self._current_playlist]
         playlist_tracks = playlist_data["tracks"]
 
-        for item in playlist_tracks[:]: 
+        for item in playlist_tracks[:]:
             if isinstance(item, dict):
                 if artist in item.get("artist", "").lower() and title in item.get("title", "").lower():
                     playlist_tracks.remove(item)
@@ -464,7 +472,7 @@ class MusicCRS(Agent):
     def _clear_playlist(self) -> str:
         playlist_data = self._playlists[self._current_playlist]
         playlist_data["tracks"].clear()
-        playlist_data["cover"] = None 
+        playlist_data["cover"] = None
         self._emit_playlist_update()
         return f"Playlist '{self._current_playlist}'now empty."
 
@@ -482,7 +490,7 @@ class MusicCRS(Agent):
         self._current_playlist = name
         self._emit_playlist_update()
         return f"Created and switched to new playlist '{name}'."
-    
+
     def _get_album(self,artist : str,title : str) -> str:
         print(artist,title)
         return get_album(artist,title)
@@ -520,7 +528,7 @@ class MusicCRS(Agent):
         playlist_data = self._playlists[self._current_playlist]
         tracks = playlist_data["tracks"]
 
-    
+
         if not tracks:
             return "The playlist is empty."
 
@@ -529,22 +537,22 @@ class MusicCRS(Agent):
         album_counts = {}
 
         for track in tracks:
-           
+
             total_duration_ms += track.get("duration", 0)
 
-           
+
             artist = track.get("artist", "Unknown")
             artist_counts[artist] = artist_counts.get(artist, 0) + 1
 
             album = track.get("album_name", "Unknown album")
             album_counts[album] = album_counts.get(album, 0) + 1
 
-        
+
         total_duration_min = total_duration_ms / 60000
         most_common_artist = max(artist_counts, key=artist_counts.get)
         most_common_album = max(album_counts, key=album_counts.get)
         unique_artists = len(artist_counts)
-   
+
         message = (
             f"<b> Playlist Summary</b><br>"
             f"Total tracks: {len(tracks)}<br>"
@@ -555,7 +563,7 @@ class MusicCRS(Agent):
         )
         return message
 
-    def _preview(self, track: str):    
+    def _preview(self, track: str):
         artist, title = [s.strip() for s in track.split(":", 1)]
         sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
             client_id="b408182a8de64714ad698d1841704963",
@@ -739,60 +747,155 @@ class MusicCRS(Agent):
         return response
 
 
+    # def _create_auto_playlist(self, description: str):
+    #     """Crée une nouvelle playlist automatiquement selon une description."""
+    #     if not description:
+    #         return "Please provide a description (e.g., /auto_playlist sad love songs)."
+
+
+    #     playlist_name = description.replace(" ", "_").lower()
+
+    #     if playlist_name in self._playlists:
+    #         return f"A playlist '{playlist_name}' already exists."
+
+
+    #     self._playlists[playlist_name] = {"tracks": [], "cover": None}
+    #     self._current_playlist = playlist_name
+
+
+    #     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+    #         client_id="b408182a8de64714ad698d1841704963",
+    #         client_secret="82d8b8299a374b7686b613c3db446819",
+    #         redirect_uri="http://127.0.0.1:8888/callback",
+    #         scope="user-read-playback-state,user-modify-playback-state,streaming"
+    #     ))
+
+
+
+    #     results = sp.search(q=description, type="track", limit=10)
+    #     items = results.get("tracks", {}).get("items", [])
+
+    #     if not items:
+    #         return f"No tracks found for '{description}'."
+
+    #     added_tracks = []
+    #     for track in items:
+    #         info = {
+    #             "artist": track["artists"][0]["name"],
+    #             "title": track["name"],
+    #             "album_name": track["album"]["name"],
+    #             "uri": track["uri"],
+    #             "duration": track["duration_ms"],
+    #         }
+
+    #         self._playlists[playlist_name]["tracks"].append(info)
+    #         added_tracks.append(f"{info['artist']} – {info['title']}")
+
+
+    #     cover_url = items[0]["album"]["images"][0]["url"] if items[0]["album"]["images"] else None
+    #     if cover_url:
+    #         self._playlists[playlist_name]["cover"] = cover_url
+
+    #     self._emit_playlist_update()
+
+    #     return f"🎶 Created playlist '<b>{playlist_name}</b>' based on '{description}' with {len(added_tracks)} songs:<br>" + "<br>".join(added_tracks)
+
     def _create_auto_playlist(self, description: str):
-        """Crée une nouvelle playlist automatiquement selon une description."""
-        if not description:
-            return "Please provide a description (e.g., /auto_playlist sad love songs)."
+        prompt = f"""
+            You are a music assistant. Create a playlist based on the description: "{description}".
 
-        
-        playlist_name = description.replace(" ", "_").lower()
+            Rules:
+            - Sport/workout → ~15 songs
+            - Long activities (road trip, studying, traveling, party) → ~25 songs
+            - Otherwise → 10-20 songs
+            - Each song must include "title" and "artist"
+            - Suggest a playlist name
+            - Output ONLY valid JSON in this format:
+            {{
+            "playlist_name": "string",
+            "songs": [{{"title": "song title", "artist": "artist name"}}, ...]
+            }}
+        """
+        # Léonie :
+        # try:
+        #     ollama_client = Client(
+        #         host=OLLAMA_HOST,
+        #         headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"}
+        #     )
 
-        if playlist_name in self._playlists:
-            return f"A playlist '{playlist_name}' already exists."
+        #     response = ollama_client.generate(
+        #         model=OLLAMA_MODEL,
+        #         prompt=prompt,
+        #         options={"stream": False}
+        #     )
+        #     text = response["response"]
 
-        
+        #     if text.startswith("```"):
+        #         text = text.strip("`").replace("json", "").strip()
+
+        #     data = json.loads(text)
+
+        # except Exception as e:
+        #     print("⚠️ Error calling or parsing Ollama response:", e)
+        #     data = {"playlist_name": "untitled_playlist", "songs": []}
+
+        # Bastien :
+        try:
+            response = httpx.post(
+                f"{OLLAMA_HOST}/api/generate",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                },
+                timeout=60
+            )
+
+            if response.status_code != 200:
+                print(f"⚠️ Ollama HTTP {response.status_code}: {response.text}")
+                data = {"playlist_name": "untitled_playlist", "songs": []}
+            else:
+                text = response.json().get("response") or response.json().get("text") or ""
+                start = text.find("{")
+                end = text.rfind("}")
+                if start != -1 and end != -1:
+                    text = text[start:end + 1]
+                else:
+                    raise ValueError("No JSON found in LLM response.")
+                data = json.loads(text)
+
+        except Exception as e:
+            print("⚠️ Error calling or parsing Ollama response:", e)
+            data = {"playlist_name": "untitled_playlist", "songs": []}
+
+
+        playlist_name = data.get("playlist_name", "untitled_playlist").replace(" ", "_").lower()
+        songs = data.get("songs", [])
+
+        base_name = playlist_name
+        i = 2
+        while playlist_name in self._playlists:
+            playlist_name = f"{base_name}_{i}"
+            i += 1
+
         self._playlists[playlist_name] = {"tracks": [], "cover": None}
         self._current_playlist = playlist_name
 
-        
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id="b408182a8de64714ad698d1841704963",
-            client_secret="82d8b8299a374b7686b613c3db446819",
-            redirect_uri="http://127.0.0.1:8888/callback",
-            scope="user-read-playback-state,user-modify-playback-state,streaming"
-        ))
-
-
-        
-        results = sp.search(q=description, type="track", limit=10)
-        items = results.get("tracks", {}).get("items", [])
-
-        if not items:
-            return f"No tracks found for '{description}'."
-
-        added_tracks = []
-        for track in items:
+        for s in songs:
             info = {
-                "artist": track["artists"][0]["name"],
-                "title": track["name"],
-                "album_name": track["album"]["name"],
-                "uri": track["uri"],
-                "duration": track["duration_ms"],
+                "artist": s["artist"],
+                "title": s["title"],
+                "album_name": None,
+                "uri": None,
+                "duration": None,
             }
-     
             self._playlists[playlist_name]["tracks"].append(info)
-            added_tracks.append(f"{info['artist']} – {info['title']}")
-
-
-        cover_url = items[0]["album"]["images"][0]["url"] if items[0]["album"]["images"] else None
-        if cover_url:
-            self._playlists[playlist_name]["cover"] = cover_url
 
         self._emit_playlist_update()
+        added_tracks = [f"{s['artist']} – {s['title']}" for s in songs]
 
         return f"🎶 Created playlist '<b>{playlist_name}</b>' based on '{description}' with {len(added_tracks)} songs:<br>" + "<br>".join(added_tracks)
-
-
 
 
 
@@ -802,9 +905,6 @@ class MusicCRS(Agent):
         Interprets the user's free text input and maps it to the right playlist or music database action.
         Supports 'add', 'add_title', 'remove', 'create', 'show', 'clear', 'switch', and music questions.
         """
-       
-
-
 
         prompt = f"""
             You are a precise natural language parser for a **music assistant**.
@@ -878,9 +978,32 @@ class MusicCRS(Agent):
             User message: "{user_input}"
             """
 
+        # try:
+        #     ollama_client = Client(
+        #         host=OLLAMA_HOST,
+        #         headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"}
+        #     )
 
+        #     response = ollama_client.generate(
+        #         model=OLLAMA_MODEL,
+        #         prompt=prompt,
+        #         options={"stream": False}
+        #     )
+        #     text = response["response"]
+        #     print("🧠 Raw Ollama response:", text)
 
+        #     start = text.find("{")
+        #     end = text.rfind("}")
+        #     if start != -1 and end != -1:
+        #         text = text[start:end + 1]
+        #     else:
+        #         raise ValueError("No JSON found in LLM response.")
 
+        #     parsed = json.loads(text)
+
+        # except Exception as e:
+        #     print("⚠️ Error calling or parsing Ollama response:", e)
+        #     parsed = {"intent": "unknown", "artist": None, "song": None, "playlist": None}
 
         try:
             response = httpx.post(
@@ -983,10 +1106,10 @@ class MusicCRS(Agent):
             if artist and title:
                 return self._get_track_popularity(artist, title)
             return "Please specify both artist and title to check song popularity."
-        
+
         elif intent == "add_selection" and hasattr(self, "_pending_selection") and self._pending_selection:
             return self._handle_selection_response(parsed.get("selection", user_input))
-        
+
         elif intent == "cancel" or any(
             word in user_input.lower()
             for word in ["cancel", "stop", "nothing", "forget it", "don't add", "dont add", "leave it", "rien", "laisse tomber", "n'ajoute rien","anything"]
