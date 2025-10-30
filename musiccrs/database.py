@@ -3,11 +3,45 @@ import os
 import requests
 from collections import Counter
 import sqlite3
+import pandas as pd
 
 DB_PATH = "musiccrs/data/music.db"
 database_small_path ="C:/Users/Basti/Desktop/Phelma/3A/Stavanger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS/musiccrs/data/spotify_million_playlist_dataset_challenge/challenge_set.json"
 database_path = "C:/Users/Basti/Desktop/Phelma/3A/Stavaop/Phelma/3A/Stavanger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS2/musiccrs/data/spotify_million_playlist_dataset_challenge/cnger/DAT-640_Information_Retriaval_Text_Mining/Project/Git/dat640-2025-MusicCRS/musiccrs/data/mpd.v1/data"
 merged_path = os.path.join(database_path, "all_tracks.json")
+
+DB_PATH = "musiccrs/data/music.db"  # adapte selon ton chemin
+
+# === Connexion ===
+conn = sqlite3.connect(DB_PATH)
+
+# === Voir les tables disponibles ===
+tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table';", conn)
+print("📂 Tables disponibles :")
+print(tables)
+
+# === Charger les 1000 premières lignes ===
+df = pd.read_sql_query("SELECT * FROM Track LIMIT 1000;", conn)
+
+# === Afficher sans coupure ===
+pd.set_option("display.max_rows", None)      # affiche toutes les lignes
+pd.set_option("display.max_columns", None)   # affiche toutes les colonnes
+pd.set_option("display.width", 0)            # permet d'afficher toute la largeur
+pd.set_option("display.max_colwidth", None)  # pas de troncature des textes longs
+
+print("\n🎵 === 1000 premières lignes de la table Track ===")
+print(df)
+
+# === Si tu veux voir juste les 3 colonnes importantes ===
+print("\n🎶 === artist_name, track_name, album_name ===")
+df_small = pd.read_sql_query(
+    "SELECT artist_name, track_name, album_name FROM Track LIMIT 1000;",
+    conn
+)
+print(df_small)
+
+# === Fermeture ===
+conn.close()
 
 
 def get_connection():
